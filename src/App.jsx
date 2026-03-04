@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import {
   LayoutGrid,
   Package,
@@ -11,15 +10,10 @@ import {
   Trash2,
   Search,
   CreditCard,
-  Cloud,
   CheckCircle,
   Clock,
   Store
 } from 'lucide-react';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const DEFAULT_PRODUCTS = [
 { id: 'p1', name: 'Espresso', price: 3.50, category: 'Coffee', stock: 100 },
@@ -39,7 +33,6 @@ const [notification, setNotification] = useState(null);
 const [products, setProducts] = useState([]);
 const [cart, setCart] = useState([]);
 const [transactions, setTransactions] = useState([]);
-const [syncing, setSyncing] = useState(false);
 
 // Initialize Data (Offline First)
 useEffect(() => {
@@ -81,44 +74,6 @@ setNotification(msg);
 setTimeout(() => setNotification(null), 3000);
 };
 
-// --- SUPABASE SYNC LOGIC ---
-const syncToSupabase = async () => {
-  if (!isOnline) {
-    notify("Cannot sync while offline.");
-    return;
-  }
-
-  setSyncing(true);
-
-  try {
-    const unsynced = transactions.filter(t => !t.synced);
-    if (unsynced.length === 0) {
-      setSyncing(false);
-      return;
-    }
-
-    const dataToInsert = unsynced.map(({ synced, subtotal, ...rest }) => rest);
-
-    const { error } = await supabase.from('transactions').insert(dataToInsert);
-
-    if (error) {
-      console.error('Supabase Sync Error:', error);
-      notify(`Sync failed: ${error.message}`);
-    } else {
-      const syncedIds = new Set(unsynced.map(t => t.id));
-      setTransactions(prev => prev.map(t =>
-        syncedIds.has(t.id) ? { ...t, synced: true } : t
-      ));
-      notify("Successfully synced with cloud!");
-    }
-  } catch (err) {
-    console.error('Unexpected Sync Error:', err);
-    notify("An unexpected error occurred during sync.");
-  } finally {
-    setSyncing(false);
-  }
-};
-
 const formatMoney = (amount) =>
 new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
@@ -130,7 +85,7 @@ return (
       <div className="bg-blue-600 p-2 rounded-xl">
         <Store size={24} className="text-white" />
       </div>
-      <span className="font-bold text-xl hidden md:block tracking-tight">CloudPOS</span>
+      <span className="font-bold text-xl hidden md:block tracking-tight">LocalPOS</span>
     </div>
 
     <nav className="flex-1 py-6 flex flex-col gap-2 px-3 md:px-4">
@@ -182,9 +137,6 @@ return (
       <TransactionsView
         transactions={transactions}
         formatMoney={formatMoney}
-        syncToSupabase={syncToSupabase}
-        syncing={syncing}
-        isOnline={isOnline}
       />
     )}
     {/* Global Toast Notification */}
@@ -251,8 +203,7 @@ const newTransaction = {
   items: cart,
   subtotal,
   tax,
-  total,
-  synced: false // Crucial for offline-first logic
+  total
 };
 setTransactions(prev => [newTransaction, ...prev]);
 setCart([]);
@@ -469,9 +420,7 @@ return (
 };
 
 // --- TRANSACTIONS VIEW ---
-const TransactionsView = ({ transactions, formatMoney, syncToSupabase, syncing, isOnline }) => {
-const pendingSync = transactions.filter(t => !t.synced).length;
-
+const TransactionsView = ({ transactions, formatMoney }) => {
 return (
 <div className="p-6 md:p-8 h-full overflow-y-auto bg-slate-50">
   <div className="max-w-5xl mx-auto space-y-6">
@@ -479,30 +428,7 @@ return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
       <div>
         <h2 className="text-3xl font-bold text-gray-900">Sales History</h2>
-        <p className="text-gray-500 mt-1">View and synchronize your offline transactions.</p>
-      </div>
-      <div className="flex items-center space-x-4 bg-white p-2 pl-4 rounded-xl shadow-sm border border-gray-200">
-        <div className="flex items-center space-x-2">
-          <Cloud className={pendingSync > 0 ? "text-amber-500" : "text-emerald-500"} size={20} />
-          <span className="font-semibold text-gray-700">
-            {pendingSync} Pending Sync
-          </span>
-        </div>
-        <button
-          onClick={syncToSupabase}
-          disabled={syncing || pendingSync === 0 || !isOnline}
-          className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center space-x-2 ${
-            syncing || pendingSync === 0 || !isOnline
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
-          }`}
-        >
-          {syncing ? (
-            <span className="animate-pulse">Syncing...</span>
-          ) : (
-            <span>Sync to Supabase</span>
-          )}
-        </button>
+        <p className="text-gray-500 mt-1">View your offline transactions.</p>
       </div>
     </div>
     {/* Transactions Table */}
@@ -513,8 +439,7 @@ return (
             <th className="p-4 font-semibold text-gray-600">Date & Time</th>
             <th className="p-4 font-semibold text-gray-600">Order ID</th>
             <th className="p-4 font-semibold text-gray-600">Summary</th>
-            <th className="p-4 font-semibold text-gray-600">Total</th>
-            <th className="p-4 font-semibold text-gray-600 text-right">Status</th>
+            <th className="p-4 font-semibold text-gray-600 text-right">Total</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -531,23 +456,12 @@ return (
               <td className="p-4 text-sm text-gray-600">
                 {t.items.map(item => `${item.qty}x ${item.product.name}`).join(', ')}
               </td>
-              <td className="p-4 font-bold text-gray-900">{formatMoney(t.total)}</td>
-              <td className="p-4 text-right">
-                {t.synced ? (
-                  <span className="inline-flex items-center space-x-1 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md text-sm font-medium">
-                    <CheckCircle size={14} /> <span>Cloud</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center space-x-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-md text-sm font-medium">
-                    <Clock size={14} /> <span>Local</span>
-                  </span>
-                )}
-              </td>
+              <td className="p-4 font-bold text-gray-900 text-right">{formatMoney(t.total)}</td>
             </tr>
           ))}
           {transactions.length === 0 && (
             <tr>
-              <td colSpan="5" className="p-12 text-center">
+              <td colSpan="4" className="p-12 text-center">
                 <History size={48} className="mx-auto text-gray-200 mb-4" />
                 <p className="text-gray-500 text-lg">No transactions yet.</p>
               </td>
