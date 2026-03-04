@@ -12,7 +12,8 @@ import {
   CreditCard,
   CheckCircle,
   Clock,
-  Store
+  Store,
+  Download
 } from 'lucide-react';
 
 const DEFAULT_PRODUCTS = [
@@ -28,6 +29,7 @@ export default function App() {
 const [activeTab, setActiveTab] = useState('pos');
 const [isOnline, setIsOnline] = useState(true);
 const [notification, setNotification] = useState(null);
+const [deferredPrompt, setDeferredPrompt] = useState(null);
 
 // Core State
 const [products, setProducts] = useState([]);
@@ -36,6 +38,12 @@ const [transactions, setTransactions] = useState([]);
 
 // Initialize Data (Offline First)
 useEffect(() => {
+const handleBeforeInstallPrompt = (e) => {
+  e.preventDefault();
+  setDeferredPrompt(e);
+};
+window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
 // Check network status
 setIsOnline(navigator.onLine);
 const handleOnline = () => setIsOnline(true);
@@ -57,8 +65,19 @@ if (savedTransactions) {
 return () => {
   window.removeEventListener('online', handleOnline);
   window.removeEventListener('offline', handleOffline);
+  window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 };
 }, []);
+
+const handleInstall = async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  }
+};
 
 // Persist State Changes
 useEffect(() => {
@@ -102,6 +121,17 @@ return (
         active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')}
       />
     </nav>
+    {deferredPrompt && (
+      <div className="p-4 mt-auto">
+        <button
+          onClick={handleInstall}
+          className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl transition-colors font-medium shadow-lg"
+        >
+          <Download size={20} />
+          <span className="hidden md:block">Install App</span>
+        </button>
+      </div>
+    )}
     {/* Network Status Indicator */}
     <div className="p-4 border-t border-slate-800">
       <div className={`flex items-center justify-center md:justify-start space-x-3 p-3 rounded-xl transition-colors ${isOnline ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>

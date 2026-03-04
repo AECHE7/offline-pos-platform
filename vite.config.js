@@ -10,8 +10,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
       manifest: {
-        name: 'Offline POS System',
+        name: 'LocalPOS Offline System',
         short_name: 'LocalPOS',
         description: 'A fully offline Point of Sale system',
         theme_color: '#ffffff',
@@ -19,9 +20,13 @@ export default defineConfig({
         icons: [
           {
             src: 'https://cdn-icons-png.flaticon.com/512/3050/3050251.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'https://cdn-icons-png.flaticon.com/512/3050/3050251.png',
             sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
+            type: 'image/png'
           }
         ]
       }
