@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   LayoutGrid,
   Package,
@@ -15,6 +16,10 @@ import {
   Clock,
   Store
 } from 'lucide-react';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const DEFAULT_PRODUCTS = [
 { id: 'p1', name: 'Espresso', price: 3.50, category: 'Coffee', stock: 100 },
@@ -78,18 +83,40 @@ setTimeout(() => setNotification(null), 3000);
 
 // --- SUPABASE SYNC LOGIC ---
 const syncToSupabase = async () => {
-if (!isOnline) {
-notify("Cannot sync while offline.");
-return;
-}
+  if (!isOnline) {
+    notify("Cannot sync while offline.");
+    return;
+  }
 
-setSyncing(true);
-// Mock API Delay for demonstration
-await new Promise(resolve => setTimeout(resolve, 1500));
-// Mark all as synced locally
-setTransactions(prev => prev.map(t => ({ ...t, synced: true })));
-setSyncing(false);
-notify("Successfully synced with cloud!");
+  setSyncing(true);
+
+  try {
+    const unsynced = transactions.filter(t => !t.synced);
+    if (unsynced.length === 0) {
+      setSyncing(false);
+      return;
+    }
+
+    const dataToInsert = unsynced.map(({ synced, subtotal, ...rest }) => rest);
+
+    const { error } = await supabase.from('transactions').insert(dataToInsert);
+
+    if (error) {
+      console.error('Supabase Sync Error:', error);
+      notify(`Sync failed: ${error.message}`);
+    } else {
+      const syncedIds = new Set(unsynced.map(t => t.id));
+      setTransactions(prev => prev.map(t =>
+        syncedIds.has(t.id) ? { ...t, synced: true } : t
+      ));
+      notify("Successfully synced with cloud!");
+    }
+  } catch (err) {
+    console.error('Unexpected Sync Error:', err);
+    notify("An unexpected error occurred during sync.");
+  } finally {
+    setSyncing(false);
+  }
 };
 
 const formatMoney = (amount) =>
